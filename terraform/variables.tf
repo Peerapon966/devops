@@ -15,3 +15,8 @@ variable "vpc_id" {
   type = string
   default = null
 }
+
+variable "my_ip" {
+  description = "The public IP address of the local machine"
+  type = string
+}

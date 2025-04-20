@@ -1,0 +1,15 @@
+plugin: amazon.aws.aws_ec2
+regions:
+  - ap-southeast-7
+profile: dev
+include_filters:
+  - tag:Project:
+      - "k3s-ansible"
+hostnames:
+  - ip-address
+  - private-ip-address
+keyed_groups:
+  - key: tags.Project
+    prefix: project
+  - key: tags.Role
+    prefix: role

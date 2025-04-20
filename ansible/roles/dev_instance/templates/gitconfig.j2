@@ -1,0 +1,55 @@
+[user]
+	name = {{ github_user }}
+	email = {{ github_email }}
+
+[alias]
+	cp = cherry-pick
+	co = checkout
+
+	st = status
+	stb = status -sb
+
+	ci = commit
+	cm = commit -m
+	ca = commit --amend -m
+	cmm = commit -Ssm
+	ss = commit --amend -S
+
+	last = log -1 HEAD --stat
+	
+	ls = ls-files
+	
+	lg = log -p
+	ll = log --oneline
+	lol = log --graph --decorate --pretty=oneline --abbrev-commit
+	lola = log --graph --decorate --pretty=oneline --abbrev-commit --all --date=local
+
+	df = diff
+	ds = diff --staged
+
+	# Show files ignored by git:
+	ign = ls-files -o -i --exclude-standard
+
+	# Display all the consul list
+	cl = config --list
+
+	# Display all the git aliases
+	aliases = !git config --get-regexp 'alias.*' | colrm 1 6 | sed 's/[ ]/ = /'
+
+[color]
+	ui = true
+
+[color "diff"]
+	meta = yellow bold
+	commit = green bold
+	frag = magenta bold
+	old = red bold
+	new = green bold
+	whitespace = red reverse
+
+[core]
+	excludesfile = ~/.gitignore_global
+	editor = vim
+
+[init]
+	defaultBranch = main

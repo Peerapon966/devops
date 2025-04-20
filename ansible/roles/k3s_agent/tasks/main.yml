@@ -1,0 +1,26 @@
+# - name: Debug
+#   ansible.builtin.debug:
+#     var: hostvars[groups['role_server'][0]]['k3s_server_ip']
+- name: Check if K3s is already installed
+  ansible.builtin.command: k3s --version
+  register: k3s_version
+  ignore_errors: true
+  failed_when: false
+  changed_when: false
+- name: Install K3s agent
+  block:
+    - name: Install K3s agent
+      ansible.builtin.shell:
+        executable: /bin/bash
+        cmd: |
+          set -o pipefail
+          export K3S_URL=https://{{ hostvars[groups['role_server'][0]]['k3s_server_ip']['stdout'] }}:6443
+          export K3S_TOKEN={{ hostvars[groups['role_server'][0]]['k3s_server_token']['stdout'] }}
+          curl -sfL https://get.k3s.io | sh -
+      when: k3s_version.rc != 0
+      changed_when: true
+  rescue:
+    - name: Uninstall K3s agent
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k3s-agent-uninstall.sh
+      changed_when: true

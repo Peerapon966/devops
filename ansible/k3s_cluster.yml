@@ -1,0 +1,25 @@
+---
+- name: Install Docker and Docker Compose
+  hosts: all
+  become: true
+  pre_tasks:
+    - name: Update repository index
+      ansible.builtin.dnf:
+        update_cache: true
+  roles:
+    - role: docker
+      tags: docker
+
+- name: Install K3s as a server
+  hosts: role_server
+  become: true
+  roles:
+    - role: k3s_server
+      tags: k3s_server
+
+- name: Install K3s as an agent
+  hosts: role_agent
+  become: true
+  roles:
+    - role: k3s_agent
+      tags: k3s_agent

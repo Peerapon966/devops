@@ -1,8 +1,3 @@
-- name: Pull Git Docker image
-  community.docker.docker_image_pull:
-    name: "lastshogun13/docker_git"
-    tag: "latest"
-    pull: "not_present"
 - name: Creates directory
   ansible.builtin.file:
     path: /home/ec2-user/git
@@ -10,6 +5,7 @@
     owner: ec2-user
     group: ec2-user
     mode: "0755"
+
 - name: Create .gitconfig file
   ansible.builtin.template:
     src: gitconfig.j2
@@ -17,6 +13,7 @@
     owner: ec2-user
     group: ec2-user
     mode: "0666"
+
 - name: Copy docker-compose.yml
   ansible.builtin.copy:
     src: docker-compose.yml
@@ -24,6 +21,7 @@
     owner: ec2-user
     group: ec2-user
     mode: "0644"
+
 - name: Create Git container script
   ansible.builtin.template:
     src: git.sh.j2
@@ -31,6 +29,7 @@
     owner: ec2-user
     group: ec2-user
     mode: "0755"
+
 - name: Create .netrc file
   ansible.builtin.template:
     src: netrc.j2

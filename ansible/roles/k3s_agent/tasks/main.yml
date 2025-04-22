@@ -1,12 +1,10 @@
-# - name: Debug
-#   ansible.builtin.debug:
-#     var: hostvars[groups['role_server'][0]]['k3s_server_ip']
 - name: Check if K3s is already installed
   ansible.builtin.command: k3s --version
   register: k3s_version
   ignore_errors: true
   failed_when: false
   changed_when: false
+
 - name: Install K3s agent
   block:
     - name: Install K3s agent

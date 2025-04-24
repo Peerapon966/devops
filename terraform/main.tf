@@ -106,7 +106,7 @@ resource "aws_iam_role_policy_attachment" "api_execution_role_attachment" {
 
 resource "aws_instance" "server_node" {
   ami           = data.aws_ami.amazon_linux.id
-  instance_type = "t3.medium"
+  instance_type = "t3.small"
   key_name = aws_key_pair.keypair.key_name
   vpc_security_group_ids = [ aws_security_group.allow_tls.id ]
   iam_instance_profile = aws_iam_instance_profile.k3s_server_profile.name

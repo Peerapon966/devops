@@ -43,6 +43,14 @@ resource "aws_vpc_security_group_ingress_rule" "allow_k3s_api_ipv4" {
   to_port           = 6443
 }
 
+resource "aws_vpc_security_group_ingress_rule" "allow_nodeport_ipv4" {
+  security_group_id = aws_security_group.allow_tls.id
+  cidr_ipv4         = var.my_ip
+  from_port         = 30000
+  ip_protocol       = "tcp"
+  to_port           = 32767
+}
+
 resource "aws_vpc_security_group_ingress_rule" "allow_all_traffic_ipv4" {
   security_group_id = aws_security_group.allow_tls.id
   referenced_security_group_id = aws_security_group.allow_tls.id

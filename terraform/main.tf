@@ -74,6 +74,7 @@ resource "aws_instance" "agent_node" {
   instance_type = "t3.micro"
   key_name = aws_key_pair.keypair.key_name
   vpc_security_group_ids = [ aws_security_group.allow_tls.id ]
+  iam_instance_profile = aws_iam_instance_profile.k3s_agent_profile.name
 
   tags = {
     Name = "k3s-agent-node-${count.index + 1}"
@@ -96,8 +97,18 @@ data "aws_iam_policy_document" "assume_role" {
   }
 }
 
+resource "aws_iam_policy" "alc_policy" {                                                                                                       
+  policy = file("assets/iam/alc_policy.json")         
+} 
+
 resource "aws_iam_role" "k3s_server_role" {
   name               = "k3s-server-role"
+  path               = "/"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role" "k3s_agent_role" {
+  name               = "k3s-agent-role"
   path               = "/"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
@@ -107,14 +118,25 @@ resource "aws_iam_instance_profile" "k3s_server_profile" {
   role = aws_iam_role.k3s_server_role.name
 }
 
-resource "aws_iam_role_policy_attachment" "api_execution_role_attachment" {
+resource "aws_iam_instance_profile" "k3s_agent_profile" {
+  name = "k3s-agent-profile"
+  role = aws_iam_role.k3s_agent_role.name
+}
+
+resource "aws_iam_role_policy_attachment" "server_role_attachment" {
   role       = aws_iam_role.k3s_server_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess"
 }
 
+resource "aws_iam_role_policy_attachment" "alc_role_attachment" {
+  for_each = { server = aws_iam_role.k3s_server_role.name, agent = aws_iam_role.k3s_agent_role.name }
+  role       = each.value
+  policy_arn = aws_iam_policy.alc_policy.arn
+}
+
 resource "aws_instance" "server_node" {
   ami           = data.aws_ami.amazon_linux.id
-  instance_type = "t3.small"
+  instance_type = "t3.medium"
   key_name = aws_key_pair.keypair.key_name
   vpc_security_group_ids = [ aws_security_group.allow_tls.id ]
   iam_instance_profile = aws_iam_instance_profile.k3s_server_profile.name

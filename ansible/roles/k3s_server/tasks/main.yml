@@ -10,7 +10,7 @@
     executable: /bin/bash
     cmd: |
       set -o pipefail
-      curl -sfL https://get.k3s.io | sh -s - server --node-taint "CriticalAddonsOnly=true:NoExecute"
+      curl -sfL https://get.k3s.io | sh -s - server --node-taint "CriticalAddonsOnly=true:NoExecute" --disable=servicelb
   when: k3s_version.rc != 0
   changed_when: k3s_version.rc != 0
 

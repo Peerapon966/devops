@@ -1,5 +1,5 @@
 - name: Install Docker
-  ansible.builtin.dnf:
+  ansible.builtin.package:
     name: docker
     state: present
 
@@ -23,7 +23,7 @@
 
 - name: Add user to Docker group
   ansible.builtin.user:
-    name: ec2-user
+    name: "{{ username }}"
     groups:
       - docker
     append: true

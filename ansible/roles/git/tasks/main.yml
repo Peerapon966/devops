@@ -1,0 +1,28 @@
+- name: Install Git
+  ansible.builtin.package:
+    name: git
+    state: present
+
+- name: Creates directory
+  ansible.builtin.file:
+    path: "/home/{{ username }}/projects"
+    state: directory
+    owner: "{{ username }}"
+    group: "{{ username }}"
+    mode: "0755"
+
+- name: Create .gitconfig file
+  ansible.builtin.template:
+    src: gitconfig.j2
+    dest: "/home/{{ username }}/.gitconfig"
+    owner: "{{ username }}"
+    group: "{{ username }}"
+    mode: "0666"
+
+- name: Create .netrc file
+  ansible.builtin.template:
+    src: netrc.j2
+    dest: "/home/{{ username }}/.netrc"
+    owner: "{{ username }}"
+    group: "{{ username }}"
+    mode: "0400"

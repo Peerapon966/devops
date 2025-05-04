@@ -1,0 +1,27 @@
+- name: "Check if user exists: {{ username }}"
+  ansible.builtin.command:
+    cmd: id -u {{ username }}
+  register: user_check
+  failed_when: false
+  changed_when: false
+
+- name: Create a user
+  ansible.builtin.user:
+    name: "{{ username }}"
+    groups:
+      - wheel
+      - users
+    append: true
+    shell: /bin/bash
+    home: "/home/{{ username }}"
+    password: "{{ password | password_hash('sha512') }}"
+  when: user_check.rc != 0
+
+- name: Wait for user to be ready
+  ansible.builtin.pause:
+    seconds: 2
+  when: user_check.rc != 0
+
+- name: Include reset connection task
+  ansible.builtin.include_tasks: reset_connection.yml
+  when: user_check.rc != 0

@@ -3,16 +3,14 @@
   hosts: all
   become: true
   pre_tasks:
-    - name: Update repository index
+    - name: Update repository index (Fedora)
       ansible.builtin.dnf:
         update_cache: true
+      when: ansible_distribution == "Fedora"
+    - name: Update repository index (Ubuntu)
+      ansible.builtin.apt:
+        update_cache: true
+      when: ansible_distribution == "Ubuntu"
   roles:
     - role: docker
-      tags: docker
-
-- name: Prepare development environment
-  hosts: env_dev
-  become: true
-  roles:
-    - role: dev_instance
-      tags: dev_instance
+    - role: git

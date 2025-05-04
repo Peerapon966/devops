@@ -1,9 +1,0 @@
-version: "3.8"
-services:
-  git:
-    image: lastshogun13/docker_git:latest
-    container_name: git
-    volumes:
-      - $HOME/git:/git:delegated
-      - $HOME/.netrc:/root/.netrc:ro
-      - $HOME/.gitconfig:/root/.gitconfig:rw

@@ -2,3 +2,4 @@ ansible_user: fedora
 ansible_password:
 ansible_sudo_pass:
 ansible_python_interpreter: /usr/bin/python3
+username: fedora

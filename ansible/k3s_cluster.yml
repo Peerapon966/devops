@@ -1,7 +1,6 @@
 ---
-- name: Install Docker, Docker Compose, and setup Git container
-  hosts: vm
-  remote_user: "{{ username }}"
+- name: Install Docker and Docker Compose
+  hosts: k3s_node
   become: true
   pre_tasks:
     - name: Update repository index (Fedora)
@@ -13,19 +12,16 @@
         update_cache: true
       when: ansible_distribution == "Ubuntu"
   roles:
-    - role: docker
-    - role: git
+    - role: base
 
 - name: Install K3s as a server
   hosts: role_server
-  remote_user: "{{ username }}"
   become: true
   roles:
     - role: k3s_server
 
 - name: Install K3s as an agent
   hosts: role_agent
-  remote_user: "{{ username }}"
   become: true
   roles:
     - role: k3s_agent

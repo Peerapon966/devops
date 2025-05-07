@@ -1,3 +1,0 @@
-- name: Disable firewalld
-  ansible.posix.firewalld:
-    state: disabled

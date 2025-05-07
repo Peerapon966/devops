@@ -3,3 +3,4 @@ ansible_password:
 ansible_sudo_pass:
 ansible_package_use: snap
 ansible_python_interpreter: /usr/bin/python3
+username: ubuntu

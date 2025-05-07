@@ -1,2 +1,0 @@
-- name: Reset SSH connection to switch user
-  ansible.builtin.meta: reset_connection

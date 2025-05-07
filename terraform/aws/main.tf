@@ -1,6 +1,6 @@
 data "aws_ami" "amazon_linux" {
   most_recent = true
-  owners = ["amazon"]
+  owners      = ["amazon"]
 
   filter {
     name   = "name"
@@ -52,9 +52,9 @@ resource "aws_vpc_security_group_ingress_rule" "allow_nodeport_ipv4" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "allow_all_traffic_ipv4" {
-  security_group_id = aws_security_group.allow_tls.id
+  security_group_id            = aws_security_group.allow_tls.id
   referenced_security_group_id = aws_security_group.allow_tls.id
-  ip_protocol       = "-1"
+  ip_protocol                  = "-1"
 }
 
 resource "aws_vpc_security_group_egress_rule" "allow_all_traffic_ipv4" {
@@ -69,18 +69,18 @@ resource "aws_key_pair" "keypair" {
 }
 
 resource "aws_instance" "agent_node" {
-  count = 3
-  ami           = data.aws_ami.amazon_linux.id
-  instance_type = "t3.micro"
-  key_name = aws_key_pair.keypair.key_name
-  vpc_security_group_ids = [ aws_security_group.allow_tls.id ]
-  iam_instance_profile = aws_iam_instance_profile.k3s_agent_profile.name
+  count                  = 3
+  ami                    = data.aws_ami.amazon_linux.id
+  instance_type          = "t3.micro"
+  key_name               = aws_key_pair.keypair.key_name
+  vpc_security_group_ids = [aws_security_group.allow_tls.id]
+  iam_instance_profile   = aws_iam_instance_profile.k3s_agent_profile.name
 
   tags = {
-    Name = "k3s-agent-node-${count.index + 1}"
-    Project = "k3s-ansible"
+    Name        = "k3s-agent-node-${count.index + 1}"
+    Project     = "k3s-ansible"
     Environment = "dev"
-    Role = "agent"
+    Role        = "agent"
   }
 }
 
@@ -97,9 +97,9 @@ data "aws_iam_policy_document" "assume_role" {
   }
 }
 
-resource "aws_iam_policy" "alc_policy" {                                                                                                       
-  policy = file("assets/iam/alc_policy.json")         
-} 
+resource "aws_iam_policy" "alc_policy" {
+  policy = file("assets/iam/alc_policy.json")
+}
 
 resource "aws_iam_role" "k3s_server_role" {
   name               = "k3s-server-role"
@@ -129,28 +129,28 @@ resource "aws_iam_role_policy_attachment" "server_role_attachment" {
 }
 
 resource "aws_iam_role_policy_attachment" "alc_role_attachment" {
-  for_each = { server = aws_iam_role.k3s_server_role.name, agent = aws_iam_role.k3s_agent_role.name }
+  for_each   = { server = aws_iam_role.k3s_server_role.name, agent = aws_iam_role.k3s_agent_role.name }
   role       = each.value
   policy_arn = aws_iam_policy.alc_policy.arn
 }
 
 resource "aws_instance" "server_node" {
-  ami           = data.aws_ami.amazon_linux.id
-  instance_type = "t3.medium"
-  key_name = aws_key_pair.keypair.key_name
-  vpc_security_group_ids = [ aws_security_group.allow_tls.id ]
-  iam_instance_profile = aws_iam_instance_profile.k3s_server_profile.name
+  ami                    = data.aws_ami.amazon_linux.id
+  instance_type          = "t3.medium"
+  key_name               = aws_key_pair.keypair.key_name
+  vpc_security_group_ids = [aws_security_group.allow_tls.id]
+  iam_instance_profile   = aws_iam_instance_profile.k3s_server_profile.name
 
   tags = {
-    Name = "k3s-server-node"
-    Project = "k3s-ansible"
+    Name        = "k3s-server-node"
+    Project     = "k3s-ansible"
     Environment = "dev"
-    Role = "server"
+    Role        = "server"
   }
 }
 
 output "agent_node_ips" {
-  value = {for i in aws_instance.agent_node : i.tags_all.Name => i.public_ip }
+  value = { for i in aws_instance.agent_node : i.tags_all.Name => i.public_ip }
 }
 
 output "server_node_ip" {

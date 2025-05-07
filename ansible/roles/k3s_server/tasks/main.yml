@@ -13,13 +13,10 @@
       curl -sfL https://get.k3s.io | sh -s - server \
         --node-taint "CriticalAddonsOnly=true:NoExecute" \
         --disable=servicelb \
+        --disable=traefik \
         --write-kubeconfig-mode 0644
   when: k3s_version.rc != 0
   changed_when: k3s_version.rc != 0
-
-- name: Include disable firewall task
-  ansible.builtin.include_tasks: "disable-firewall-{{ ansible_distribution | lower }}.yml"
-  when: ansible_distribution in ['Fedora', 'Ubuntu']
 
 - name: Get K3s server token
   ansible.builtin.command: cat /var/lib/rancher/k3s/server/token
@@ -27,8 +24,6 @@
   changed_when: false
 
 - name: Get K3s server IP
-  ansible.builtin.shell: |
-    set -o pipefail
-    hostname -I | awk -F' ' '{print $1}'
+  ansible.builtin.command: hostname
   register: k3s_server_ip
   changed_when: false

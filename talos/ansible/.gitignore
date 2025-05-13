@@ -1,0 +1,6 @@
+# Ansible vault password file
+vault_password
+
+# Talos configs and secrets
+_out
+secrets.yaml

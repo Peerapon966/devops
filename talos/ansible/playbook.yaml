@@ -1,0 +1,109 @@
+---
+- name: Set up Talos cluster
+  hosts: localhost
+  tasks:
+    - name: Check if Talos secrets already exist
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/secrets.yaml"
+      register: secrets_file
+      changed_when: false
+
+    - name: Generate Talos secrets
+      ansible.builtin.command:
+        chdir: "{{ playbook_dir }}"
+        cmd: talosctl gen secrets
+      changed_when: true
+      when: not secrets_file.stat.exists
+
+    - name: Create VIP patch file
+      ansible.builtin.template:
+        src: templates/vip.yaml.j2
+        dest: patches/vip.yaml
+        mode: "0644"
+
+    - name: Generate Talos configuration
+      ansible.builtin.command: |
+        talosctl gen config {{ cluster_name }} https://{{ vip }}:6443 \
+          --force \
+          --with-secrets secrets.yaml \
+          --install-image factory.talos.dev/nocloud-installer/{{ schematic_id }}:v{{ talos_version }} \
+          --config-patch @patches/disable-cni.yaml \
+          --config-patch @patches/cilium.yaml \
+          --config-patch @patches/install-disk.yaml \
+          --config-patch @patches/interface-names.yaml \
+          --config-patch @patches/kubelet-certificates.yaml \
+          --config-patch-control-plane @patches/vip.yaml \
+          --output "{{ playbook_dir }}/_out"
+      changed_when: true
+
+    - name: Apply Talos configuration to control plane nodes
+      ansible.builtin.command: |
+        talosctl apply-config --insecure --nodes {{ item }} \
+          --file _out/controlplane.yaml
+      loop: "{{ groups['controlplane'] }}"
+      changed_when: false
+
+    - name: Apply Talos configuration to worker nodes
+      ansible.builtin.command: |
+        talosctl apply-config --insecure --nodes {{ item }} \
+          --file _out/worker.yaml
+      loop: "{{ groups['worker'] }}"
+      changed_when: false
+
+    - name: Check if Talos config file already exist
+      ansible.builtin.stat:
+        path: "{{ ansible_env.HOME }}/.talos/config"
+      register: talos_config_file
+      changed_when: false
+
+    - name: Set up Talos config file
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/_out/talosconfig"
+        dest: "{{ ansible_env.HOME }}/.talos/config"
+        mode: "0644"
+        force: true
+      changed_when: false
+      when: not talos_config_file.stat.exists
+
+    - name: Merge Talos config file
+      ansible.builtin.command:
+        cmd: talosctl config merge {{ playbook_dir }}/_out/talosconfig
+      changed_when: false
+      when: talos_config_file.stat.exists
+
+    - name: Get Talos endpoints
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          echo "{{ groups['controlplane'] }}" | sed "s/'/\\\"/g" | jq -r 'join(" ")'
+        executable: /bin/bash
+      register: talos_endpoints
+      changed_when: false
+
+    - name: Configure Talos endpoints
+      ansible.builtin.command:
+        cmd: |
+          talosctl config endpoints {{ talos_endpoints.stdout }}
+      changed_when: false
+
+    - name: Configure Talos default node
+      ansible.builtin.command:
+        cmd: |
+          talosctl config node {{ groups['controlplane'][0] }}
+      changed_when: false
+
+    - name: Wait for Talos to be ready
+      ansible.builtin.pause:
+        minutes: 3
+        prompt: "Waiting for Talos to be ready. Press Enter to continue or Ctrl+C to abort."
+      changed_when: false
+
+    - name: Bootstrap Talos cluster
+      ansible.builtin.command:
+        cmd: talosctl bootstrap
+      changed_when: false
+
+    - name: Retrieve kubeconfig
+      ansible.builtin.command:
+        cmd: talosctl kubeconfig -f ~/.kube/config
+      changed_when: false

@@ -39,20 +39,6 @@ else
   curl -sL https://talos.dev/install | sh
 fi
 
-# Cilium CLI
-if [[ "$(which cilium | wc -l)" -ge 1 ]]; then
-  echo "[INFO] Cilium CLI is already installed, skipping installation."
-else
-  echo -e "[INFO] Installing Cilium CLI...\n"
-  CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
-  CLI_ARCH=amd64
-  if [ "$(uname -m)" = "aarch64" ]; then CLI_ARCH=arm64; fi
-  curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
-  sha256sum --check cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
-  sudo tar xzvfC cilium-linux-${CLI_ARCH}.tar.gz /usr/local/bin
-  rm cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
-fi
-
 # Python3
 if [[ "$(which python3 | wc -l)" -ge 1 ]]; then
   echo "[INFO] Python3 is already installed, skipping installation."
@@ -72,14 +58,4 @@ else
   echo 'export PATH="$PATH:$HOME/.local/bin"' >> ~/.bashrc
 fi
 
-echo -e "[INFO] All necessary packages installed successfully.\n"
-echo -e "[INFO] Creating Proxmox Talos VM template...\n"
-
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-pushd "$SCRIPT_DIR/talos" > /dev/null
-ls -la
-
-# ansible-playbook playbook.yml --extra-vars "cluster_name=test-cluster vip=192.168.1.30"
-popd > /dev/null
-
-# factory.talos.dev/nocloud-installer/5bda138c79b86d8ea7534c4f7e51b33c560788bf29a0d51e7257d4ece11cf69a:v1.10.1
+echo -e "[INFO] All necessary packages installed successfully."

@@ -44,5 +44,10 @@ resource "proxmox_vm_qemu" "talos" {
 }
 
 output "vm_ip" {
-  value = [for vm in proxmox_vm_qemu.talos : vm.default_ipv4_address]
+  value = {
+    for type in ["master", "worker"] : type => {
+      for vm, config in var.vm : vm => proxmox_vm_qemu.talos[vm].default_ipv4_address
+      if config.type == type
+    }
+  }
 }

@@ -1,0 +1,30 @@
+- name: Create VIP patch file
+  ansible.builtin.template:
+    src: templates/vip.yaml.j2
+    dest: patches/vip.yaml
+    mode: "0644"
+  vars:
+    ip: "{{ host_data.ip }}"
+
+- name: Generate Talos configuration
+  ansible.builtin.command: |
+    talosctl gen config {{ cluster_name }} https://{{ vip }}:6443 \
+      --force \
+      --with-secrets secrets.yaml \
+      --install-image factory.talos.dev/nocloud-installer/{{ schematic_id }}:v{{ talos_version }} \
+      --config-patch @patches/disable-cni.yaml \
+      --config-patch @patches/cilium.yaml \
+      --config-patch @patches/install-disk.yaml \
+      --config-patch @patches/interface-names.yaml \
+      --config-patch @patches/kubelet-certificates.yaml \
+      --config-patch-control-plane @patches/vip.yaml \
+      --output "{{ playbook_dir }}/_out"
+  changed_when: true
+
+- name: Apply Talos configuration to control plane nodes
+  ansible.builtin.command: |
+    talosctl apply-config --insecure --nodes {{ ip }} \
+      --file _out/controlplane.yaml
+  vars:
+    ip: "{{ host_data.ip }}"
+  changed_when: false

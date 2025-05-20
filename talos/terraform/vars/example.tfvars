@@ -6,6 +6,7 @@ iso = "local:iso/talos-nocloud-amd64.iso"
 vm = {
   master-1 = {
     name        = "talos-master-1"
+    type        = "master"
     onboot      = true
     memory      = 4096
     cores       = 2
@@ -14,6 +15,7 @@ vm = {
   },
   master-2 = {
     name        = "talos-master-2"
+    type        = "master"
     onboot      = true
     memory      = 4096
     cores       = 2
@@ -22,6 +24,7 @@ vm = {
   },
   master-3 = {
     name        = "talos-master-3"
+    type        = "master"
     onboot      = true
     memory      = 4096
     cores       = 2
@@ -30,6 +33,7 @@ vm = {
   },
   worker-1 = {
     name        = "talos-worker-1"
+    type        = "worker"
     onboot      = true
     memory      = 8192
     cores       = 2
@@ -38,6 +42,7 @@ vm = {
   },
   worker-2 = {
     name        = "talos-worker-2"
+    type        = "worker"
     onboot      = true
     memory      = 8192
     cores       = 2

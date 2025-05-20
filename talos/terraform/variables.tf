@@ -25,14 +25,20 @@ variable "iso" {
 
 variable "vm" {
   description = "configuration for the VM"
-  type = map(
-    object({
-      name        = string
-      onboot      = bool
-      memory      = number
-      cores       = number
-      sockets     = number
-      storage_size = number
-    })
-  )
+  type = map(object({
+    name         = string
+    type         = string
+    onboot       = bool
+    memory       = number
+    cores        = number
+    sockets      = number
+    storage_size = number
+  }))
+
+  validation {
+    condition = alltrue([
+      for vm in var.vm : contains(["master", "worker"], vm.type)
+    ])
+    error_message = "Each VM must have a type of either 'master' or 'worker'."
+  }
 }

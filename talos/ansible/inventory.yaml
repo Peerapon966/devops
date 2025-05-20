@@ -1,0 +1,6 @@
+all:
+  children:
+    controlplane:
+      hosts:
+    worker:
+      hosts:

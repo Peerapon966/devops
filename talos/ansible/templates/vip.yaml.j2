@@ -2,7 +2,12 @@
 machine:
   network:
     interfaces:
-    - interface: eth0
-      dhcp: true
-      vip:
-        ip: {{ vip }}
+      - interface: eth0
+        addresses:
+          - {{ ip }}/24
+        routes:
+          - network: 0.0.0.0/0
+            gateway: 192.168.1.1
+        dhcp: false
+        vip:
+          ip: {{ vip }}

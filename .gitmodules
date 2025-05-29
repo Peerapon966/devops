@@ -1,0 +1,4 @@
+[submodule "hsr-helm-chart"]
+	path = hsr-helm-chart
+	url = https://github.com/Peerapon966/hsr-helm-chart.git
+	branch = main

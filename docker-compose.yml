@@ -1,0 +1,107 @@
+services:
+  next:
+    container_name: next
+    build:
+      context: .
+      dockerfile: Dockerfile
+      no_cache: true
+    image: next:latest
+    ports:
+      - 3000:3000
+    env_file:
+      - .env.production.local
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: 2
+        reservations:
+          cpus: 0.5
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  phpmyadmin:
+    container_name: phpmyadmin
+    image: phpmyadmin:latest
+    restart: unless-stopped
+    environment:
+      - PMA_HOSTS=mysql
+      - PMA_USER=admin
+      - PMA_PASSWORD=P@ssw0rd
+      - PMA_ARBITRARY=1
+      - PMA_PORT=3306
+    ports:
+      - 8080:80
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  mysql:
+    container_name: mysql
+    image: mysql:8.0.38
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=P@ssw0rd
+      - MYSQL_USER=admin
+      - MYSQL_PASSWORD=P@ssw0rd
+      - MYSQL_DATABASE=starrail
+      - TZ='Asia/Bangkok'
+    ports:
+      - 3308:3306
+    command: mysqld --log_bin_trust_function_creators=1
+    healthcheck:
+      test: "mysql -h127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD -e'show databases;'"
+      interval: 10s
+      timeout: 30s
+      retries: 3
+      start_period: 15s
+    volumes:
+      - mysql_volume:/var/lib/mysql
+    networks:
+      - app-network
+
+  redis:
+    container_name: redis
+    image: redis:alpine
+    restart: always
+    ports:
+      - 6379:6379
+    environment:
+      - REDIS_PASSWORD=P@ssw0rd
+    command: /bin/sh -c "redis-server --requirepass $$REDIS_PASSWORD --save 60 1 --loglevel warning"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD"]
+      interval: 5s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - redis_volume:/data
+    networks:
+      - app-network
+
+  mailhog:
+    container_name: mailhog
+    image: mailhog/mailhog
+    ports:
+      - 1025:1025
+      - 8025:8025
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    name: app-network
+
+volumes:
+  mysql_volume:
+    driver: local
+  redis_volume:
+    driver: local

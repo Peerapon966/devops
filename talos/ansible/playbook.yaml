@@ -83,5 +83,17 @@
         cmd: talosctl kubeconfig -f ~/.kube/config
       changed_when: false
 
-    # - name: Clean up Talos config files
-    #   ansible.builtin.file:
+    - name: Clean up Talos config files
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/patches/vip.yaml"
+        state: absent
+
+    - name: Retrieve kubeconfig
+      ansible.builtin.command:
+        cmd:
+          helm install nginx-ic oci://ghcr.io/nginx/charts/nginx-ingress --version 5.0.0 \
+          # --set controller.publishService.enabled=true \
+          # --set controller.service.type=NodePort \
+          # --set controller.service.nodePorts.http=30080 \
+          # --set controller.service.nodePorts.https=30443
+      changed_when: false

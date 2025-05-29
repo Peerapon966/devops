@@ -56,6 +56,14 @@ else
   rm kubectl
 fi
 
+# Helm
+if [[ "$(which helm | wc -l)" -ge 1 ]]; then
+  echo "[INFO] Helm is already installed, skipping installation."
+else
+  echo -e "[INFO] Installing Helm...\n"
+  curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+fi
+
 # Talosctl
 if [[ "$(which talosctl | wc -l)" -ge 1 ]]; then
   echo "[INFO] Talosctl is already installed, skipping installation."
@@ -112,9 +120,7 @@ echo -e "\n[INFO] Generating Ansible inventory file...\n"
 pushd "$script_dir/talos/ansible" > /dev/null
 
 echo "$hosts" | jq -c 'to_entries[]' | while read -r group; do
-  host_type=$(echo "$group" | jq -r '.key')  # "master" or "worker"
-
-  # Map "master" → "controlplane", "worker" → "worker"
+  host_type=$(echo "$group" | jq -r '.key')
   group_key=$([ "$host_type" = "master" ] && echo "controlplane" || echo "worker")
 
   echo "$group" | jq -c '.value | to_entries[]' | while read -r host; do

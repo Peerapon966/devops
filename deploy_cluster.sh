@@ -10,16 +10,18 @@ terraform_var_file="$script_dir/talos/terraform/vars/local.tfvars"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -t|--terraform-var-file)
-      terraform_var_file="$2"
+      terraform_var_file="$script_dir/talos/terraform/vars/$(basename $2)"
       shift 2
+
+      if [[ ! -f "$terraform_var_file" ]]; then
+        echo "Terraform variable file '$terraform_var_file' does not exist."
+        exit 1
+      fi
       ;;
-    -*)
+    *)
       echo "Unknown option: $1"
       echo "Usage: $0 [-t value] [--terraform-var-file value]"
       exit 1
-      ;;
-    *)
-      shift
       ;;
   esac
 done

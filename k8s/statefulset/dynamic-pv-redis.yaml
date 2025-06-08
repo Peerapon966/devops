@@ -1,0 +1,86 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-secret
+type: Opaque
+stringData:
+  REDIS_PASSWORD: "P@ssw0rd"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hsr-redis
+spec:
+  serviceName: hsr-redis
+  replicas: 3
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:8-alpine
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          command: [ "sh", "-c" ]
+          args:
+            - |
+              if [ "$(hostname)" = "${PREFIX}-redis-0" ]; then
+                echo "Starting as primary"
+                exec redis-server \
+                  --appendonly yes \
+                  --requirepass "$REDIS_PASSWORD" \
+                  --save 60 1 \
+                  --loglevel warning
+              else
+                echo "Starting as replica of redis-0"
+                exec redis-server \
+                  --appendonly yes \
+                  --requirepass "$REDIS_PASSWORD" \
+                  --masterauth "$REDIS_PASSWORD" \
+                  --save 60 1 \
+                  --loglevel warning \
+                  --replicaof "${PREFIX}-redis-0.${PREFIX}-redis.${NAMESPACE}.svc.cluster.local 6379"
+              fi
+          envFrom:
+            - secretRef:
+                name: redis-secret
+          env:
+            - name: NAMESPACE
+              value: redis
+            - name: PREFIX
+              value: hsr
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      terminationGracePeriodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hsr-redis
+spec:
+  clusterIP: None
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      name: redis

@@ -8,8 +8,34 @@ stringData:
   MYSQL_ROOT_PASSWORD: "P@ssw0rd"
   MYSQL_USER: "admin"
   MYSQL_PASSWORD: "P@ssw0rd"
+  MYSQL_REPLICATION_PASSWORD: "P@ssw0rd"
   MYSQL_DATABASE: "starrail"
   TZ: "Asia/Bangkok"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: init-script
+data:
+  set-replica.sh: |
+    #!/bin/bash
+
+    if [[ "$HOSTNAME" == "mysql-0" ]]; then
+      echo "Configuring primary..."
+      mysql -u root -p$MYSQL_ROOT_PASSWORD -e "
+        CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED WITH mysql_native_password BY '$MYSQL_REPLICATION_PASSWORD';
+        GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%';
+        FLUSH PRIVILEGES;"
+    else
+      echo "Configuring replica..."
+      mysql -u root -p$MYSQL_ROOT_PASSWORD -e "
+        CHANGE REPLICATION SOURCE TO
+        SOURCE_HOST='mysql-0.mysql.default.svc.cluster.local',
+        SOURCE_USER='repl',
+        SOURCE_PASSWORD='$MYSQL_REPLICATION_PASSWORD',
+        SOURCE_AUTO_POSITION=1;
+        START REPLICA;"
+    fi
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -17,7 +43,7 @@ metadata:
   name: mysql
 spec:
   serviceName: "mysql"
-  replicas: 2
+  replicas: 3
   selector:
     matchLabels:
       app: mysql
@@ -29,15 +55,36 @@ spec:
       containers:
       - name: mysql
         image: mysql:8.0
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            exec docker-entrypoint.sh \
+              --server-id=${MYSQL_SERVER_ID##*-} \
+              --gtid-mode=ON \
+              --enforce-gtid-consistency=ON \
+              --log-bin=mysql-bin \
+              --binlog-format=ROW \
+              --bind-address=0.0.0.0
         ports:
         - containerPort: 3306
           name: mysql
+        env:
+        - name: MYSQL_SERVER_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
         envFrom:
         - secretRef:
             name: mysql-secret
         volumeMounts:
         - name: mysql
           mountPath: /var/lib/mysql
+        - name: init-script
+          mountPath: /docker-entrypoint-initdb.d
+      volumes:
+      - name: init-script
+        configMap:
+          name: init-script
   volumeClaimTemplates:
   - metadata:
       name: mysql

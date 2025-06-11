@@ -20,6 +20,11 @@ data:
   set-replica.sh: |
     #!/bin/bash
 
+    if [[ -z "$MYSQL_REPLICATION_PASSWORD" ]]; then
+      echo "MYSQL_REPLICATION_PASSWORD is not set"
+      exit 1
+    fi
+
     if [[ "$HOSTNAME" == "mysql-0" ]]; then
       echo "Configuring primary..."
       mysql -u root -p$MYSQL_ROOT_PASSWORD -e "
@@ -28,9 +33,21 @@ data:
         FLUSH PRIVILEGES;"
     else
       echo "Configuring replica..."
+
+      timeout=60
+      count=0
+      until mysqladmin ping -h mysql-0.mysql.mysql.svc.cluster.local --silent || [ $count -ge $timeout ]; do
+        sleep 2
+        count=$((count + 2))
+      done
+      if [ $count -ge $timeout ]; then
+        echo "Timed out waiting for primary"
+        exit 1
+      fi
+
       mysql -u root -p$MYSQL_ROOT_PASSWORD -e "
         CHANGE REPLICATION SOURCE TO
-        SOURCE_HOST='mysql-0.mysql.default.svc.cluster.local',
+        SOURCE_HOST='mysql-0.mysql.mysql.svc.cluster.local',
         SOURCE_USER='repl',
         SOURCE_PASSWORD='$MYSQL_REPLICATION_PASSWORD',
         SOURCE_AUTO_POSITION=1;
@@ -58,8 +75,9 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
           - |
+            ORDINAL=${MYSQL_SERVER_ID##*-}
             exec docker-entrypoint.sh \
-              --server-id=${MYSQL_SERVER_ID##*-} \
+              --server-id=$((ORDINAL + 1)) \
               --gtid-mode=ON \
               --enforce-gtid-consistency=ON \
               --log-bin=mysql-bin \
@@ -81,10 +99,30 @@ spec:
           mountPath: /var/lib/mysql
         - name: init-script
           mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "1000m"
+            memory: "2Gi"
+        livenessProbe:
+          exec:
+            command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 2
       volumes:
       - name: init-script
         configMap:
           name: init-script
+          defaultMode: 0755
   volumeClaimTemplates:
   - metadata:
       name: mysql
@@ -106,3 +144,42 @@ spec:
   clusterIP: None
   selector:
     app: mysql
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mysql-migration
+spec:
+  template:
+    spec:
+      volumes:
+      - name: shared-sql
+        emptyDir: {}
+
+      initContainers:
+      - name: starrail-bak
+        image: heftychonk/starrail-bak:20241224
+        command: ["sh", "-c", "cp /starrail_bak.sql /data/starrail_bak.sql"]
+        volumeMounts:
+        - name: shared-sql
+          mountPath: /data
+
+      containers:
+      - name: mysql-client
+        image: mysql:8.0
+        envFrom:
+        - secretRef:
+            name: mysql-secret
+        command:
+          - sh
+          - -c
+          - |
+            until mysqladmin ping -hmysql-0.mysql.mysql.svc.cluster.local -uroot -p$MYSQL_ROOT_PASSWORD --silent; do
+              sleep 2
+            done
+            mysql -hmysql-0.mysql.mysql.svc.cluster.local -uroot -p$MYSQL_ROOT_PASSWORD starrail < /data/starrail_bak.sql || { echo "Restore failed"; exit 1; }
+        volumeMounts:
+        - name: shared-sql
+          mountPath: /data
+      restartPolicy: Never
+  backoffLimit: 4

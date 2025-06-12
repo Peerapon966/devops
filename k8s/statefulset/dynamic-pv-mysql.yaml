@@ -5,10 +5,10 @@ metadata:
   name: mysql-secret
 type: Opaque
 stringData:
+  NEXT_USER: "next"
+  NEXT_PASSWORD: "P@ssw0rd"
+  REPLICA_PASSWORD: "P@ssw0rd"
   MYSQL_ROOT_PASSWORD: "P@ssw0rd"
-  MYSQL_USER: "admin"
-  MYSQL_PASSWORD: "P@ssw0rd"
-  MYSQL_REPLICATION_PASSWORD: "P@ssw0rd"
   MYSQL_DATABASE: "starrail"
   TZ: "Asia/Bangkok"
 ---
@@ -20,17 +20,27 @@ data:
   set-replica.sh: |
     #!/bin/bash
 
-    if [[ -z "$MYSQL_REPLICATION_PASSWORD" ]]; then
-      echo "MYSQL_REPLICATION_PASSWORD is not set"
+    if [[ -z "$REPLICA_PASSWORD" ]]; then
+      echo "REPLICA_PASSWORD is not set"
       exit 1
     fi
 
     if [[ "$HOSTNAME" == "mysql-0" ]]; then
       echo "Configuring primary..."
       mysql -u root -p$MYSQL_ROOT_PASSWORD -e "
-        CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED WITH mysql_native_password BY '$MYSQL_REPLICATION_PASSWORD';
+        # disable binlog for primary to avoid create user statements being logged and replicated
+        SET SESSION sql_log_bin=0;
+        
+        CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED WITH mysql_native_password BY '$REPLICA_PASSWORD';
         GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%';
-        FLUSH PRIVILEGES;"
+        
+        CREATE USER IF NOT EXISTS '$NEXT_USER'@'%' IDENTIFIED WITH mysql_native_password BY '$NEXT_PASSWORD';
+        GRANT SELECT, INSERT, UPDATE, DELETE ON starrail.* TO '$NEXT_USER'@'%';
+        
+        FLUSH PRIVILEGES;
+
+        # re-enable binlog for primary
+        SET SESSION sql_log_bin=1;"
     else
       echo "Configuring replica..."
 
@@ -40,17 +50,30 @@ data:
         sleep 2
         count=$((count + 2))
       done
+
       if [ $count -ge $timeout ]; then
         echo "Timed out waiting for primary"
         exit 1
       fi
 
       mysql -u root -p$MYSQL_ROOT_PASSWORD -e "
+        # disable binlog for primary to avoid create user statements being logged
+        SET SESSION sql_log_bin=0;
+        
+        CREATE USER IF NOT EXISTS '$NEXT_USER'@'%' IDENTIFIED WITH mysql_native_password BY '$NEXT_PASSWORD';
+        GRANT SELECT, INSERT, UPDATE, DELETE ON starrail.* TO '$NEXT_USER'@'%';
+        
+        FLUSH PRIVILEGES;
+
+        # re-enable binlog for primary
+        SET SESSION sql_log_bin=1;
+
         CHANGE REPLICATION SOURCE TO
         SOURCE_HOST='mysql-0.mysql.mysql.svc.cluster.local',
         SOURCE_USER='repl',
-        SOURCE_PASSWORD='$MYSQL_REPLICATION_PASSWORD',
+        SOURCE_PASSWORD='$REPLICA_PASSWORD',
         SOURCE_AUTO_POSITION=1;
+
         START REPLICA;"
     fi
 ---

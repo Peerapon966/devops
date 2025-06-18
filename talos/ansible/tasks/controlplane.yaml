@@ -13,7 +13,6 @@
       --with-secrets secrets.yaml \
       --install-image factory.talos.dev/nocloud-installer/{{ schematic_id }}:v{{ talos_version }} \
       --config-patch @patches/disable-cni.yaml \
-      --config-patch @patches/cilium.yaml \
       --config-patch @patches/install-disk.yaml \
       --config-patch @patches/interface-names.yaml \
       --config-patch @patches/kubelet-certificates.yaml \

@@ -1,17 +1,17 @@
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
-  name: metallb-ip-pool
+  name: kind-metallb-ip-pool
   namespace: metallb-system
 spec:
   addresses:
-    - 192.168.0.230-192.168.0.233
+    - 172.21.0.230-172.21.0.233
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
-  name: metallb-l2
+  name: kind-metallb-l2
   namespace: metallb-system
 spec:
   ipAddressPools:
-    - metallb-ip-pool
+    - kind-metallb-ip-pool

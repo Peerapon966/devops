@@ -87,10 +87,86 @@
       ansible.builtin.file:
         path: "{{ playbook_dir }}/patches/vip.yaml"
         state: absent
+    
+    - name: Wait for all Talos nodes to join cluster
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+      register: nodes
+      until: nodes.resources | length == (groups['controlplane'] | length + groups['worker'] | length)
+      retries: 60
+      delay: 10
+
+    - name: Wait for all nodes to be Ready
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+      register: node_status
+      until: >
+        node_status.resources | 
+        selectattr('status.conditions', 'defined') |
+        map(attribute='status.conditions') |
+        flatten |
+        selectattr('type', 'equalto', 'Ready') |
+        selectattr('status', 'equalto', 'True') |
+        list | length == 3
+      retries: 60
+      delay: 10
+    
+    - name: Add Cilium Helm repository
+      kubernetes.core.helm_repository:
+        name: cilium
+        repo_url: https://helm.cilium.io/
+
+    - name: Install Cilium CNI
+      kubernetes.core.helm:
+        name: cilium
+        chart_ref: cilium/cilium
+        release_namespace: kube-system
+        create_namespace: true
+        values:
+          ipam:
+            mode: kubernetes
+          kubeProxyReplacement: true
+          operator:
+            replicas: 2
+          securityContext:
+            capabilities:
+              ciliumAgent:
+                - CHOWN
+                - KILL
+                - NET_ADMIN
+                - NET_RAW
+                - IPC_LOCK
+                - SYS_ADMIN
+                - SYS_RESOURCE
+                - DAC_OVERRIDE
+                - FOWNER
+                - SETGID
+                - SETUID
+              cleanCiliumState:
+                - NET_ADMIN
+                - SYS_ADMIN
+                - SYS_RESOURCE
+          cgroup:
+            autoMount:
+              enabled: false
+            hostRoot: /sys/fs/cgroup
+          l2announcements:
+            enabled: true
+          externalIPs:
+            enabled: true
+          devices: eth+
+          k8sServiceHost: localhost
+          k8sServicePort: 7445
+          k8sClientRateLimit:
+            qps: 25
+            burst: 50
 
     - name: Install Cilium CNI
       ansible.builtin.command:
-        cmd:
+        cmd: |
+          helm repo add cilium https://helm.cilium.io/
           helm install \
             cilium \
             cilium/cilium \

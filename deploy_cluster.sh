@@ -75,6 +75,13 @@ cleanup() {
         rm -f kubectl helm-installer.sh talos-installer.sh yq-binary
         rm -f terraform_*.zip
     fi
+
+    # Always clean up Python venv
+    if [[ -d "$venv_dir" ]]; then
+        log_info "Cleaning up temporary Python venv..."
+        rm -rf "$venv_dir"
+    fi
+
     exit $exit_code
 }
 
@@ -403,23 +410,21 @@ else
 fi
 
 # Ansible
-if command -v ansible &> /dev/null; then
-  log_skip "Ansible is already installed ($(ansible --version | head -n1))"
-else
-  log_info "Installing Ansible..."
-  python3 -m pip install --upgrade pip
-  python3 -m pip install --user ansible
-  
-  # Add to PATH if not already there
-  ansible_path="$HOME/.local/bin"
-  if [[ ":$PATH:" != *":$ansible_path:"* ]]; then
-    export PATH="$PATH:$ansible_path"
-    echo "export PATH=\"\$PATH:$ansible_path\"" >> ~/.bashrc
-  fi
-  
-  validate_tool "Ansible" "ansible --version" || exit 1
-  log_success "Ansible installed successfully"
-fi
+# Create temporary venv for Ansible
+venv_name="talos-ansible-$(date +%s)"
+venv_dir="/tmp/$venv_name"
+
+log_info "Creating temporary Python virtual environment..."
+python3 -m venv "$venv_dir"
+source "$venv_dir/bin/activate"
+pip install --upgrade pip
+pip install ansible kubernetes
+validate_tool "Ansible" "ansible --version" || exit 1
+log_success "Ansible and kubernetes installed successfully in temporary venv: $venv_dir"
+
+# Export the venv paths for use in the script
+ansible_path="$venv_dir/bin"
+export PATH="$PATH:$ansible_path"
 
 # Ansible kubernetes.core collections
 if command -v ansible-galaxy &> /dev/null; then
@@ -517,11 +522,21 @@ log_success "Terraform deployment completed"
 log_step "Generating Ansible inventory file..."
 pushd "$ansible_dir" > /dev/null
 
-# Backup existing inventory if it exists
-if [[ -f inventory.yaml ]]; then
-    backup_file="inventory.yaml.backup.$(date +%s)"
-    cp inventory.yaml "$backup_file"
-    log_info "Backed up existing inventory file to $backup_file"
+# Create inventory.yaml with template if it does not exist
+if [[ ! -f inventory.yaml ]]; then
+  cat > inventory.yaml <<EOF
+all:
+  children:
+    local:
+      hosts:
+        localhost:
+          ansible_connection: local
+          ansible_python_interpreter: /usr/bin/python3
+    controlplane:
+      hosts:
+    worker:
+      hosts:
+EOF
 fi
 
 echo "$hosts" | jq -c 'to_entries[]' | while read -r group; do

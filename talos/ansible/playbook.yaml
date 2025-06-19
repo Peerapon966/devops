@@ -87,7 +87,7 @@
       ansible.builtin.file:
         path: "{{ playbook_dir }}/patches/vip.yaml"
         state: absent
-    
+
     - name: Wait for all Talos nodes to join cluster
       kubernetes.core.k8s_info:
         api_version: v1
@@ -103,16 +103,16 @@
         kind: Node
       register: node_status
       until: >
-        node_status.resources | 
+        node_status.resources |
         selectattr('status.conditions', 'defined') |
         map(attribute='status.conditions') |
         flatten |
         selectattr('type', 'equalto', 'Ready') |
         selectattr('status', 'equalto', 'True') |
-        list | length == 3
+        list | length == (groups['controlplane'] | length + groups['worker'] | length)
       retries: 60
       delay: 10
-    
+
     - name: Add Cilium Helm repository
       kubernetes.core.helm_repository:
         name: cilium
@@ -163,26 +163,60 @@
             qps: 25
             burst: 50
 
-    - name: Install Cilium CNI
+    - name: Wait for all Cilium pods to be ready
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: kube-system
+        label_selectors:
+          - "app.kubernetes.io/part-of=cilium"
+      register: cilium_pods
+      until: >
+        cilium_pods.resources | length > 0 and
+        cilium_pods.resources |
+        selectattr('status.phase', 'equalto', 'Running') |
+        list | length == cilium_pods.resources | length
+      retries: 30
+      delay: 10
+
+    - name: Run Cilium connectivity test
       ansible.builtin.command:
-        cmd: |
-          helm repo add cilium https://helm.cilium.io/
-          helm install \
-            cilium \
-            cilium/cilium \
-            --namespace kube-system \
-            --set=ipam.mode=kubernetes \
-            --set=kubeProxyReplacement=true \
-            --set=operator.replicas=1 \
-            --set=securityContext.capabilities.ciliumAgent="{CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}" \
-            --set=securityContext.capabilities.cleanCiliumState="{NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}" \
-            --set=cgroup.autoMount.enabled=false \
-            --set=cgroup.hostRoot=/sys/fs/cgroup \
-            --set=l2announcements.enabled=true \
-            --set=externalIPs.enabled=true \
-            --set=devices=eth+ \
-            --set=k8sServiceHost=localhost \
-            --set=k8sServicePort=7445 \
-            --set=k8sClientRateLimit.qps=25 \
-            --set=k8sClientRateLimit.burst=50
-      changed_when: true
+        cmd: cilium connectivity test --namespace-labels pod-security.kubernetes.io/enforce=privileged
+      register: connectivity_test
+      failed_when: connectivity_test.rc != 0
+      changed_when: false
+
+    - name: Delete cilium-test namespace if it exists
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: cilium-test-1
+        state: absent
+        wait: true
+        wait_timeout: 300
+      register: delete_result
+      failed_when: delete_result.rc != 0
+
+    # - name: Install Cilium CNI
+    #   ansible.builtin.command:
+    #     cmd: |
+    #       helm repo add cilium https://helm.cilium.io/
+    #       helm install \
+    #         cilium \
+    #         cilium/cilium \
+    #         --namespace kube-system \
+    #         --set=ipam.mode=kubernetes \
+    #         --set=kubeProxyReplacement=true \
+    #         --set=operator.replicas=1 \
+    #         --set=securityContext.capabilities.ciliumAgent="{CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}" \
+    #         --set=securityContext.capabilities.cleanCiliumState="{NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}" \
+    #         --set=cgroup.autoMount.enabled=false \
+    #         --set=cgroup.hostRoot=/sys/fs/cgroup \
+    #         --set=l2announcements.enabled=true \
+    #         --set=externalIPs.enabled=true \
+    #         --set=devices=eth+ \
+    #         --set=k8sServiceHost=localhost \
+    #         --set=k8sServicePort=7445 \
+    #         --set=k8sClientRateLimit.qps=25 \
+    #         --set=k8sClientRateLimit.burst=50
+    #   changed_when: true

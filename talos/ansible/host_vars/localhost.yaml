@@ -2,3 +2,4 @@ cluster_name: talos-proxmox-cluster
 talos_version: 1.10.1
 vip: 192.168.1.30
 schematic_id: 5bda138c79b86d8ea7534c4f7e51b33c560788bf29a0d51e7257d4ece11cf69a
+enable_cilium_ingress: false

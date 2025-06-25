@@ -1,0 +1,16 @@
+next:
+  nextAuth:
+    url: "http://localhost:3000/api/auth"
+    secret: "X9mK2pL8qN5rS1tV4wY7zB0cF3gH6jM9oR2uW5xA8bE1dG4kN7pS0vY3zC6fI9lO"
+    googleClientId: "847291635028-x7k9m2p5q8r1s4t7w0y3z6b9c2f5h8j1.apps.googleusercontent.com"
+    googleClientSecret: "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j6Mk9Np2Qr5Su8Tv1Wy4Zb7Ce0"
+mysql:
+  connection:
+    host: mysql
+    user: admin
+    password: P@ssw0rd
+    rootPassword: P@ssw0rd
+redis:
+  connection:
+    host: redis
+    password: P@ssw0rd

@@ -162,6 +162,65 @@
           k8sClientRateLimit:
             qps: 25
             burst: 50
+          ingressController:
+            enabled: true
+            default: true
+            service:
+              type: LoadBalancer
+
+    - name: Install Cilium CNI
+      kubernetes.core.helm:
+        name: cilium
+        chart_ref: cilium/cilium
+        release_namespace: kube-system
+        create_namespace: true
+        values: "{{ base_cilium_values | combine(cilium_ingress_block if enable_cilium_ingress else {}, recursive=True) }}"
+      vars:
+        base_cilium_values:
+          ipam:
+            mode: kubernetes
+          kubeProxyReplacement: true
+          operator:
+            replicas: 2
+          securityContext:
+            capabilities:
+              ciliumAgent:
+                - CHOWN
+                - KILL
+                - NET_ADMIN
+                - NET_RAW
+                - IPC_LOCK
+                - SYS_ADMIN
+                - SYS_RESOURCE
+                - DAC_OVERRIDE
+                - FOWNER
+                - SETGID
+                - SETUID
+              cleanCiliumState:
+                - NET_ADMIN
+                - SYS_ADMIN
+                - SYS_RESOURCE
+          cgroup:
+            autoMount:
+              enabled: false
+            hostRoot: /sys/fs/cgroup
+          l2announcements:
+            enabled: true
+          externalIPs:
+            enabled: true
+          devices: "eth+"
+          k8sServiceHost: "localhost"
+          k8sServicePort: 7445
+          k8sClientRateLimit:
+            qps: 25
+            burst: 50
+
+        cilium_ingress_block:
+          ingressController:
+            enabled: true
+            default: true
+            service:
+              type: LoadBalancer
 
     - name: Wait for all Cilium pods to be ready
       kubernetes.core.k8s_info:
@@ -186,7 +245,7 @@
       failed_when: connectivity_test.rc != 0
       changed_when: false
 
-    - name: Delete cilium-test namespace if it exists
+    - name: Delete cilium-test-1 namespace (created by connectivity test)
       kubernetes.core.k8s:
         api_version: v1
         kind: Namespace
@@ -197,26 +256,17 @@
       register: delete_result
       failed_when: delete_result.rc != 0
 
-    # - name: Install Cilium CNI
-    #   ansible.builtin.command:
-    #     cmd: |
-    #       helm repo add cilium https://helm.cilium.io/
-    #       helm install \
-    #         cilium \
-    #         cilium/cilium \
-    #         --namespace kube-system \
-    #         --set=ipam.mode=kubernetes \
-    #         --set=kubeProxyReplacement=true \
-    #         --set=operator.replicas=1 \
-    #         --set=securityContext.capabilities.ciliumAgent="{CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}" \
-    #         --set=securityContext.capabilities.cleanCiliumState="{NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}" \
-    #         --set=cgroup.autoMount.enabled=false \
-    #         --set=cgroup.hostRoot=/sys/fs/cgroup \
-    #         --set=l2announcements.enabled=true \
-    #         --set=externalIPs.enabled=true \
-    #         --set=devices=eth+ \
-    #         --set=k8sServiceHost=localhost \
-    #         --set=k8sServicePort=7445 \
-    #         --set=k8sClientRateLimit.qps=25 \
-    #         --set=k8sClientRateLimit.burst=50
-    #   changed_when: true
+    - name: Create default Cilium L2 Announcement Policy
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: cilium.io/v2alpha1
+          kind: CiliumL2AnnouncementPolicy
+          metadata:
+            name: default-l2-announcement-policy
+            namespace: kube-system
+          spec:
+            interfaces:
+              - ^eth[0-9]+$
+            externalIPs: true
+            loadBalancerIPs: true

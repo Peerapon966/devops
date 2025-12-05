@@ -226,3 +226,9 @@
         state: present
         apply: true
         src: https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
+
+    - name: Install k8s sigs metrics server
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        src: https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/high-availability-1.21+.yaml

@@ -7,6 +7,14 @@
         path: "{{ playbook_dir }}/secrets.yaml"
       register: secrets_file
       changed_when: false
+      ignore_errors: true
+
+    - name: Fail secrets.yaml not found
+      ansible.builtin.fail:
+        msg: "Talos secrets.yaml file not found. Cannot add worker nodes without existing cluster."
+      when: >
+        not secrets_file.stat.exists and
+        add_worker_only
 
     - name: Generate Talos secrets
       ansible.builtin.command:
@@ -22,13 +30,18 @@
         loop_var: host_name
       vars:
         host_data: "{{ hostvars[host_name] }}"
+      when: not add_worker_only | default(false)
 
     - name: Apply Talos configuration to worker nodes
       ansible.builtin.command: |
         talosctl apply-config --insecure --nodes {{ hostvars[item].ip }} \
           --file _out/worker.yaml
       loop: "{{ groups['worker'] }}"
+      register: result
       changed_when: false
+      failed_when: >
+        result.rc != 0 and
+        'tls: certificate required' not in result.stderr
 
     - name: Check if Talos config file already exist
       ansible.builtin.stat:
@@ -77,39 +90,26 @@
       ansible.builtin.command:
         cmd: talosctl bootstrap
       changed_when: false
+      when: not add_worker_only | default(false)
 
     - name: Retrieve kubeconfig
       ansible.builtin.command:
         cmd: talosctl kubeconfig -f ~/.kube/config
       changed_when: false
+      when: not add_worker_only | default(false)
 
     - name: Clean up Talos config files
       ansible.builtin.file:
         path: "{{ playbook_dir }}/patches/vip.yaml"
         state: absent
+      when: not add_worker_only | default(false)
 
     - name: Wait for all Talos nodes to join cluster
       kubernetes.core.k8s_info:
         api_version: v1
         kind: Node
       register: nodes
-      until: nodes.resources | length == (groups['controlplane'] | length + groups['worker'] | length)
-      retries: 60
-      delay: 10
-
-    - name: Wait for all nodes to be Ready
-      kubernetes.core.k8s_info:
-        api_version: v1
-        kind: Node
-      register: node_status
-      until: >
-        node_status.resources |
-        selectattr('status.conditions', 'defined') |
-        map(attribute='status.conditions') |
-        flatten |
-        selectattr('type', 'equalto', 'Ready') |
-        selectattr('status', 'equalto', 'True') |
-        list | length == (groups['controlplane'] | length + groups['worker'] | length)
+      until: nodes.resources | length == ((groups['controlplane'] | length) + (groups['worker'] | length))
       retries: 60
       delay: 10
 
@@ -194,6 +194,7 @@
       register: connectivity_test
       failed_when: connectivity_test.rc != 0
       changed_when: false
+      when: not skip_cilium_connectivity_check | default(false)
 
     - name: Delete cilium-test-1 namespace (created by connectivity test)
       kubernetes.core.k8s:
@@ -203,8 +204,7 @@
         state: absent
         wait: true
         wait_timeout: 300
-      register: delete_result
-      failed_when: delete_result.rc != 0
+      when: not skip_cilium_connectivity_check | default(false)
 
     - name: Create default Cilium L2 Announcement Policy
       kubernetes.core.k8s:
@@ -220,6 +220,21 @@
               - ^eth[0-9]+$
             externalIPs: true
             loadBalancerIPs: true
+
+    - name: Wait for all nodes to be Ready
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+      until: >
+        nodes.resources |
+        selectattr('status.conditions', 'defined') |
+        map(attribute='status.conditions') |
+        flatten |
+        selectattr('type', 'equalto', 'Ready') |
+        selectattr('status', 'equalto', 'True') |
+        list | length == (groups['controlplane'] | length + groups['worker'] | length)
+      retries: 60
+      delay: 10
 
     - name: Install default storage class (Local Path Provisioner)
       kubernetes.core.k8s:

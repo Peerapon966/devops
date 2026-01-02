@@ -7,8 +7,10 @@ for arg in "$@"; do
     if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
         echo "Usage: $0 [-t|--terraform-var-file <file>] [--skip-terraform-destroy]"
         echo "  -t, --terraform-var-file  Specify terraform variables file (default: local.tfvars)"
-        echo "  --skip-terraform-destroy  Don't destroy terraform resources on failure"
-        echo "  -h, --help               Show this help message"
+        echo "  --add-worker-only         Skip cluster setup via Ansible (use when you only want to add worker nodes)"
+        echo "  --skip-terraform-destroy  Skip terraform destroy on failure"
+        echo "  --skip-package-install    Skip system package installation"
+        echo "  -h, --help                Show this help message"
         exit 0
     fi
 done
@@ -54,11 +56,12 @@ terraform_dir=""
 # Cleanup function
 cleanup() {
     local exit_code=$?
+    local skip_terraform_destroy="$1"
     if [[ $exit_code -ne 0 ]]; then
         log_error "Script failed with exit code $exit_code"
         
         # Terraform cleanup
-        if [[ "$terraform_applied" == "true" && -n "$terraform_dir" ]]; then
+        if [[ "$terraform_applied" == "true" && -n "$terraform_dir" && "$skip_terraform_destroy" != "true" ]]; then
             log_warning "Attempting to destroy Terraform resources..."
             pushd "$terraform_dir" > /dev/null
             if terraform destroy -var-file "$terraform_var_file" -auto-approve; then
@@ -82,10 +85,12 @@ cleanup() {
         rm -rf "$venv_dir"
     fi
 
+    # Ensure add_worker_only is false for future runs
+    log_info "Resetting add_worker_only to false..."
+    yq e -i '.add_worker_only = false' $ansible_dir/host_vars/localhost.yaml
+
     exit $exit_code
 }
-
-trap cleanup EXIT
 
 # Detect OS and architecture
 detect_os_arch() {
@@ -212,13 +217,13 @@ validate_terraform_plan() {
         popd > /dev/null
         
         case $plan_exit_code in
+            0)
+                log_info "Terraform plan shows changes will be made"
+                return 0
+                ;;
             1)
                 log_error "Terraform plan failed - configuration errors detected"
                 return 1
-                ;;
-            2)
-                log_info "Terraform plan shows changes will be made"
-                return 0
                 ;;
             *)
                 log_error "Terraform plan failed with unexpected exit code: $plan_exit_code"
@@ -235,6 +240,19 @@ validate_terraform_plan() {
 # Default values
 script_dir=$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)
 terraform_var_file="$script_dir/talos/terraform/vars/local.tfvars"
+terraform_dir="$script_dir/talos/terraform"
+ansible_dir="$script_dir/talos/ansible"
+
+# Validate required directories exist
+if [[ ! -d "$terraform_dir" ]]; then
+    log_error "Terraform directory not found: $terraform_dir"
+    exit 1
+fi
+
+if [[ ! -d "$ansible_dir" ]]; then
+    log_error "Ansible directory not found: $ansible_dir"
+    exit 1
+fi
 
 # Parse options
 while [[ $# -gt 0 ]]; do
@@ -258,9 +276,16 @@ while [[ $# -gt 0 ]]; do
       echo "  -h, --help               Show this help message"
       exit 0
       ;;
+    --add-worker-only)
+      add_worker_only=true
+      shift
+      ;;
     --skip-terraform-destroy)
-      log_warning "Terraform destroy on failure is disabled"
       skip_terraform_destroy=true
+      shift
+      ;;
+    --skip-package-install)
+      skip_package_install=true
       shift
       ;;
     *)
@@ -270,6 +295,8 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+trap "cleanup ${skip_terraform_destroy}" EXIT
 
 # Detect system
 os_arch=$(detect_os_arch)
@@ -284,199 +311,190 @@ if [[ "$pkg_manager" != "brew" ]]; then
     fi
 fi
 
-log_step "Installing necessary packages..."
-
-# Check if /usr/local/bin is in PATH and add if not
-if [[ ":$PATH:" != *":/usr/local/bin:"* ]]; then
-    export PATH="$PATH:/usr/local/bin"
-    
-    # Only add to .bashrc if it's not already there
-    if ! grep -q 'export PATH.*:/usr/local/bin' ~/.bashrc 2>/dev/null; then
-        echo -e '\nexport PATH="$PATH:/usr/local/bin"' >> ~/.bashrc
-        log_info "Added /usr/local/bin to PATH and ~/.bashrc"
-    else
-        log_info "Added /usr/local/bin to current PATH session"
-    fi
-fi
-
-# System dependencies
-log_info "Installing system dependencies..."
-case "$pkg_manager" in
-    apt)
-        install_system_packages apt gnupg software-properties-common curl wget jq python3 python3-pip
-        ;;
-    yum|dnf)
-        install_system_packages "$pkg_manager" gnupg curl wget jq python3 python3-pip
-        ;;
-    pacman)
-        install_system_packages pacman gnupg curl wget jq python python-pip
-        ;;
-    brew)
-        install_system_packages brew gnupg curl wget jq python3
-        ;;
-esac
-
-# Terraform
-if command -v terraform &> /dev/null; then
-  log_skip "Terraform is already installed ($(terraform version | head -n1))"
+# Install necessary packages
+if [[ "${skip_package_install:-false}" == "true" ]]; then
+    log_skip "Skipping package installation as per user request"
 else
-  log_info "Installing Terraform..."
-  case "$pkg_manager" in
-    apt)
-      wget -O- https://apt.releases.hashicorp.com/gpg | \
-      gpg --dearmor | \
-      sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
-      echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
-      https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
-      sudo tee /etc/apt/sources.list.d/hashicorp.list
-      sudo apt update
-      sudo apt-get install -y terraform
-      ;;
-    yum)
-      sudo yum install -y yum-utils
-      sudo yum-config-manager --add-repo https://rpm.releases.hashicorp.com/RHEL/hashicorp.repo
-      sudo yum -y install terraform
-      ;;
-    dnf)
-      sudo dnf install -y dnf-plugins-core
-      sudo dnf config-manager --add-repo https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
-      sudo dnf -y install terraform
-      ;;
-    brew)
-      brew tap hashicorp/tap
-      brew install hashicorp/tap/terraform
-      ;;
-    *)
-      # Generic binary installation
-      tf_version=$(curl -s https://api.github.com/repos/hashicorp/terraform/releases/latest | jq -r .tag_name | sed 's/v//')
-      tf_os_arch="${os_arch/linux_/linux_}"
-      tf_os_arch="${tf_os_arch/darwin_/darwin_}"
+  log_step "Installing necessary packages..."
+
+  # Check if /usr/local/bin is in PATH and add if not
+  if [[ ":$PATH:" != *":/usr/local/bin:"* ]]; then
+      export PATH="$PATH:/usr/local/bin"
       
-      wget "https://releases.hashicorp.com/terraform/${tf_version}/terraform_${tf_version}_${tf_os_arch}.zip"
-      unzip "terraform_${tf_version}_${tf_os_arch}.zip"
-      sudo mv terraform /usr/local/bin/
-      rm "terraform_${tf_version}_${tf_os_arch}.zip"
-      ;;
-  esac
-  validate_tool "Terraform" "terraform version" || exit 1
-  log_success "Terraform installed successfully"
-fi
-
-# Kubectl
-if command -v kubectl &> /dev/null; then
-  log_skip "Kubectl is already installed ($(kubectl version --client --short 2>/dev/null || echo 'version check failed'))"
-else
-  log_info "Installing Kubectl..."
-  kubectl_os_arch="${os_arch/_//}"
-  curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/${kubectl_os_arch}/kubectl"
-  chmod +x kubectl
-  sudo mv kubectl /usr/local/bin/
-  validate_tool "Kubectl" "kubectl version --client" || exit 1
-  log_success "Kubectl installed successfully"
-fi
-
-# Helm
-if command -v helm &> /dev/null; then
-  log_skip "Helm is already installed ($(helm version --short 2>/dev/null || echo 'version check failed'))"
-else
-  log_info "Installing Helm..."
-  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 > helm-installer.sh
-  chmod +x helm-installer.sh
-  ./helm-installer.sh
-  rm helm-installer.sh
-  validate_tool "Helm" "helm version" || exit 1
-  log_success "Helm installed successfully"
-fi
-
-# Talosctl
-if command -v talosctl &> /dev/null; then
-  log_skip "Talosctl is already installed ($(talosctl version --client --short 2>/dev/null || echo 'version check failed'))"
-else
-  log_info "Installing Talosctl..."
-  curl -sL https://talos.dev/install > talos-installer.sh
-  chmod +x talos-installer.sh
-  ./talos-installer.sh
-  rm talos-installer.sh
-  validate_tool "Talosctl" "talosctl version --client" || exit 1
-  log_success "Talosctl installed successfully"
-fi
-
-# Python3 (already handled in system dependencies, just validate)
-if command -v python3 &> /dev/null; then
-  log_skip "Python3 is already installed ($(python3 --version))"
-else
-  log_error "Python3 installation failed"
-  exit 1
-fi
-
-# Ansible
-# Create temporary venv for Ansible
-venv_name="talos-ansible-$(date +%s)"
-venv_dir="/tmp/$venv_name"
-
-log_info "Creating temporary Python virtual environment..."
-python3 -m venv "$venv_dir"
-source "$venv_dir/bin/activate"
-pip install --upgrade pip
-pip install ansible kubernetes
-validate_tool "Ansible" "ansible --version" || exit 1
-log_success "Ansible and kubernetes installed successfully in temporary venv: $venv_dir"
-
-# Export the venv paths for use in the script
-ansible_path="$venv_dir/bin"
-export PATH="$PATH:$ansible_path"
-
-# Ansible kubernetes.core collections
-if command -v ansible-galaxy &> /dev/null; then
-  if ansible-galaxy collection list kubernetes.core 2>/dev/null | grep -q kubernetes.core; then
-    log_skip "kubernetes.core collection is already installed"
-  else
-    log_info "Installing kubernetes.core collection for Ansible..."
-    ansible-galaxy collection install kubernetes.core
-    log_success "kubernetes.core collection installed successfully"
+      # Only add to .bashrc if it's not already there
+      if ! grep -q 'export PATH.*:/usr/local/bin' ~/.bashrc 2>/dev/null; then
+          echo -e '\nexport PATH="$PATH:/usr/local/bin"' >> ~/.bashrc
+          log_info "Added /usr/local/bin to PATH and ~/.bashrc"
+      else
+          log_info "Added /usr/local/bin to current PATH session"
+      fi
   fi
-else
-  log_error "ansible-galaxy command not found. Ansible installation may have failed."
-  exit 1
-fi
 
-# yq
-if command -v yq &> /dev/null; then
-  log_skip "yq is already installed ($(yq --version 2>/dev/null || echo 'version check failed'))"
-else
-  log_info "Installing yq..."
+  # System dependencies
+  log_info "Installing system dependencies..."
   case "$pkg_manager" in
-    brew)
-      brew install yq
-      ;;
-    *)
-      # Generic binary installation - more reliable than PPAs
-      yq_version=$(curl -s https://api.github.com/repos/mikefarah/yq/releases/latest | jq -r .tag_name)
-      yq_os_arch="${os_arch/_//}"
-      
-      curl -L "https://github.com/mikefarah/yq/releases/download/${yq_version}/yq_${yq_os_arch}" -o yq-binary
-      chmod +x yq-binary
-      sudo mv yq-binary /usr/local/bin/yq
-      ;;
+      apt)
+          install_system_packages apt gnupg software-properties-common curl wget jq python3 python3-pip
+          ;;
+      yum|dnf)
+          install_system_packages "$pkg_manager" gnupg curl wget jq python3 python3-pip
+          ;;
+      pacman)
+          install_system_packages pacman gnupg curl wget jq python python-pip
+          ;;
+      brew)
+          install_system_packages brew gnupg curl wget jq python3
+          ;;
   esac
-  validate_tool "yq" "yq --version" || exit 1
-  log_success "yq installed successfully"
-fi
 
-log_success "All necessary packages installed successfully"
+  # Terraform
+  if command -v terraform &> /dev/null; then
+    log_skip "Terraform is already installed ($(terraform version | head -n1))"
+  else
+    log_info "Installing Terraform..."
+    case "$pkg_manager" in
+      apt)
+        wget -O- https://apt.releases.hashicorp.com/gpg | \
+        gpg --dearmor | \
+        sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
+        echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+        https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
+        sudo tee /etc/apt/sources.list.d/hashicorp.list
+        sudo apt update
+        sudo apt-get install -y terraform
+        ;;
+      yum)
+        sudo yum install -y yum-utils
+        sudo yum-config-manager --add-repo https://rpm.releases.hashicorp.com/RHEL/hashicorp.repo
+        sudo yum -y install terraform
+        ;;
+      dnf)
+        sudo dnf install -y dnf-plugins-core
+        sudo dnf config-manager --add-repo https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
+        sudo dnf -y install terraform
+        ;;
+      brew)
+        brew tap hashicorp/tap
+        brew install hashicorp/tap/terraform
+        ;;
+      *)
+        # Generic binary installation
+        tf_version=$(curl -s https://api.github.com/repos/hashicorp/terraform/releases/latest | jq -r .tag_name | sed 's/v//')
+        tf_os_arch="${os_arch/linux_/linux_}"
+        tf_os_arch="${tf_os_arch/darwin_/darwin_}"
+        
+        wget "https://releases.hashicorp.com/terraform/${tf_version}/terraform_${tf_version}_${tf_os_arch}.zip"
+        unzip "terraform_${tf_version}_${tf_os_arch}.zip"
+        sudo mv terraform /usr/local/bin/
+        rm "terraform_${tf_version}_${tf_os_arch}.zip"
+        ;;
+    esac
+    validate_tool "Terraform" "terraform version" || exit 1
+    log_success "Terraform installed successfully"
+  fi
 
-# Validate required directories exist
-terraform_dir="$script_dir/talos/terraform"
-ansible_dir="$script_dir/talos/ansible"
+  # Kubectl
+  if command -v kubectl &> /dev/null; then
+    log_skip "Kubectl is already installed ($(kubectl version --client --short 2>/dev/null || echo 'version check failed'))"
+  else
+    log_info "Installing Kubectl..."
+    kubectl_os_arch="${os_arch/_//}"
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/${kubectl_os_arch}/kubectl"
+    chmod +x kubectl
+    sudo mv kubectl /usr/local/bin/
+    validate_tool "Kubectl" "kubectl version --client" || exit 1
+    log_success "Kubectl installed successfully"
+  fi
 
-if [[ ! -d "$terraform_dir" ]]; then
-    log_error "Terraform directory not found: $terraform_dir"
+  # Helm
+  if command -v helm &> /dev/null; then
+    log_skip "Helm is already installed ($(helm version --short 2>/dev/null || echo 'version check failed'))"
+  else
+    log_info "Installing Helm..."
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 > helm-installer.sh
+    chmod +x helm-installer.sh
+    ./helm-installer.sh
+    rm helm-installer.sh
+    validate_tool "Helm" "helm version" || exit 1
+    log_success "Helm installed successfully"
+  fi
+
+  # Talosctl
+  if command -v talosctl &> /dev/null; then
+    log_skip "Talosctl is already installed ($(talosctl version --client --short 2>/dev/null || echo 'version check failed'))"
+  else
+    log_info "Installing Talosctl..."
+    curl -sL https://talos.dev/install > talos-installer.sh
+    chmod +x talos-installer.sh
+    ./talos-installer.sh
+    rm talos-installer.sh
+    validate_tool "Talosctl" "talosctl version --client" || exit 1
+    log_success "Talosctl installed successfully"
+  fi
+
+  # Python3 (already handled in system dependencies, just validate)
+  if command -v python3 &> /dev/null; then
+    log_skip "Python3 is already installed ($(python3 --version))"
+  else
+    log_error "Python3 installation failed"
     exit 1
-fi
+  fi
 
-if [[ ! -d "$ansible_dir" ]]; then
-    log_error "Ansible directory not found: $ansible_dir"
+  # Ansible
+  # Create temporary venv for Ansible
+  venv_name="talos-ansible-$(date +%s)"
+  venv_dir="/tmp/$venv_name"
+
+  log_info "Creating temporary Python virtual environment..."
+  python3 -m venv "$venv_dir"
+  source "$venv_dir/bin/activate"
+  pip install --upgrade pip
+  pip install ansible kubernetes
+  validate_tool "Ansible" "ansible --version" || exit 1
+  log_success "Ansible and kubernetes installed successfully in temporary venv: $venv_dir"
+
+  # Export the venv paths for use in the script
+  ansible_path="$venv_dir/bin"
+  export PATH="$PATH:$ansible_path"
+
+  # Ansible kubernetes.core collections
+  if command -v ansible-galaxy &> /dev/null; then
+    if ansible-galaxy collection list kubernetes.core 2>/dev/null | grep -q kubernetes.core; then
+      log_skip "kubernetes.core collection is already installed"
+    else
+      log_info "Installing kubernetes.core collection for Ansible..."
+      ansible-galaxy collection install kubernetes.core
+      log_success "kubernetes.core collection installed successfully"
+    fi
+  else
+    log_error "ansible-galaxy command not found. Ansible installation may have failed."
     exit 1
+  fi
+
+  # yq
+  if command -v yq &> /dev/null; then
+    log_skip "yq is already installed ($(yq --version 2>/dev/null || echo 'version check failed'))"
+  else
+    log_info "Installing yq..."
+    case "$pkg_manager" in
+      brew)
+        brew install yq
+        ;;
+      *)
+        # Generic binary installation - more reliable than PPAs
+        yq_version=$(curl -s https://api.github.com/repos/mikefarah/yq/releases/latest | jq -r .tag_name)
+        yq_os_arch="${os_arch/_//}"
+        
+        curl -L "https://github.com/mikefarah/yq/releases/download/${yq_version}/yq_${yq_os_arch}" -o yq-binary
+        chmod +x yq-binary
+        sudo mv yq-binary /usr/local/bin/yq
+        ;;
+    esac
+    validate_tool "yq" "yq --version" || exit 1
+    log_success "yq installed successfully"
+  fi
+
+  log_success "All necessary packages installed successfully"
 fi
 
 # Deploy Terraform VM nodes
@@ -566,6 +584,16 @@ playbook_file="$ansible_dir/playbook.yaml"
 if [[ ! -f "$playbook_file" ]]; then
     log_error "Ansible playbook not found: $playbook_file"
     exit 1
+fi
+
+if [[ "${add_worker_only:-false}" == "true" ]]; then
+    log_info "Skipping master node setup as per user request..."
+    # Update host_vars to skip master setup
+    yq e -i '.add_worker_only = true' $ansible_dir/host_vars/localhost.yaml
+else
+    log_info "Proceeding with master node setup..."
+    # Ensure add_worker_only is false
+    yq e -i '.add_worker_only = false' $ansible_dir/host_vars/localhost.yaml
 fi
 
 # Set up Talos config

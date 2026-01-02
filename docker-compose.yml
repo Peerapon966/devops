@@ -1,107 +1,59 @@
 services:
-  next:
-    container_name: next
-    build:
-      context: .
-      dockerfile: Dockerfile
-      no_cache: true
-    image: next:latest
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus:v3.8.1
     ports:
-      - 3000:3000
-    env_file:
-      - .env.production.local
-    restart: unless-stopped
+      - 127.0.0.1:9090:9090
     deploy:
-      resources:
-        limits:
-          cpus: 2
-        reservations:
-          cpus: 0.5
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - app-network
-
-  phpmyadmin:
-    container_name: phpmyadmin
-    image: phpmyadmin:latest
-    restart: unless-stopped
-    environment:
-      - PMA_HOSTS=mysql
-      - PMA_USER=admin
-      - PMA_PASSWORD=P@ssw0rd
-      - PMA_ARBITRARY=1
-      - PMA_PORT=3306
-    ports:
-      - 8080:80
-    depends_on:
-      mysql:
-        condition: service_healthy
-    networks:
-      - app-network
-
-  mysql:
-    container_name: mysql
-    image: mysql:8.0.38
-    restart: unless-stopped
-    environment:
-      - MYSQL_ROOT_PASSWORD=P@ssw0rd
-      - MYSQL_USER=admin
-      - MYSQL_PASSWORD=P@ssw0rd
-      - MYSQL_DATABASE=starrail
-      - TZ='Asia/Bangkok'
-    ports:
-      - 3308:3306
-    command: mysqld --log_bin_trust_function_creators=1
-    healthcheck:
-      test: "mysql -h127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD -e'show databases;'"
-      interval: 10s
-      timeout: 30s
-      retries: 3
-      start_period: 15s
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 10s
     volumes:
-      - mysql_volume:/var/lib/mysql
+      - prometheus_data:/prometheus
+      - ./prometheus:/etc/prometheus/
     networks:
       - app-network
 
-  redis:
-    container_name: redis
-    image: redis:alpine
-    restart: always
-    ports:
-      - 6379:6379
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:latest
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 10s
     environment:
-      - REDIS_PASSWORD=P@ssw0rd
-    command: /bin/sh -c "redis-server --requirepass $$REDIS_PASSWORD --save 60 1 --loglevel warning"
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD"]
-      interval: 5s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      - GF_SECURITY_ADMIN_PASSWORD=P@ssw0rd
+    ports:
+      - 127.0.0.1:3000:3000
     volumes:
-      - redis_volume:/data
+      - grafana_data:/var/lib/grafana
     networks:
       - app-network
 
-  mailhog:
-    container_name: mailhog
-    image: mailhog/mailhog
-    ports:
-      - 1025:1025
-      - 8025:8025
-    networks:
-      - app-network
+  node_exporter:
+    image: quay.io/prometheus/node-exporter:latest
+    container_name: node_exporter
+    command:
+      - "--path.rootfs=/host"
+    network_mode: host
+    pid: host
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 10s
+    volumes:
+      - "/:/host:ro,rslave"
 
 networks:
   app-network:
     name: app-network
 
 volumes:
-  mysql_volume:
-    driver: local
-  redis_volume:
-    driver: local
+  prometheus_data:
+  grafana_data:

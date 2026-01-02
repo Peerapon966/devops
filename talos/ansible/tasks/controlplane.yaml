@@ -26,4 +26,8 @@
       --file _out/controlplane.yaml
   vars:
     ip: "{{ host_data.ip }}"
+  register: result
   changed_when: false
+  failed_when: >
+    result.rc != 0 and
+    'tls: certificate required' not in result.stderr

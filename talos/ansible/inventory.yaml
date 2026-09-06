@@ -7,5 +7,26 @@ all:
           ansible_python_interpreter: /usr/bin/python3
     controlplane:
       hosts:
+        master-1:
+          ansible_host: 192.168.1.79
+          ip: 192.168.1.79
+        master-2:
+          ansible_host: 192.168.1.78
+          ip: 192.168.1.78
+        master-3:
+          ansible_host: 192.168.1.81
+          ip: 192.168.1.81
     worker:
       hosts:
+        worker-1:
+          ansible_host: 192.168.1.121
+          ip: 192.168.1.121
+        worker-2:
+          ansible_host: 192.168.1.117
+          ip: 192.168.1.117
+        worker-3:
+          ansible_host: 192.168.1.122
+          ip: 192.168.1.122
+        worker-4:
+          ansible_host: 192.168.1.119
+          ip: 192.168.1.119

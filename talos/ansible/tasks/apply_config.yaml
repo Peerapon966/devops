@@ -1,0 +1,27 @@
+- name: Create netconfig patch file
+  ansible.builtin.template:
+    src: "{{ project_root }}/templates/{{ node_type }}-netconfig.yaml.j2"
+    dest: "{{ project_root }}/patches/netconfig.yaml"
+    mode: "0644"
+  vars:
+    ip: "{{ host_data.ip }}"
+
+- name: Apply Talos configuration to nodes
+  ansible.builtin.command:
+    chdir: "{{ project_root }}"
+    cmd: |
+      talosctl apply-config --insecure --nodes {{ ip }} \
+        --file _out/{{ node_type }}.yaml \
+        --config-patch @patches/netconfig.yaml
+  vars:
+    ip: "{{ host_data.ip }}"
+  register: result
+  changed_when: false
+  failed_when: >
+    result.rc != 0 and
+    'tls: certificate required' not in result.stderr
+
+- name: Clean up netconfig files
+  ansible.builtin.file:
+    path: "{{ project_root }}/patches/netconfig.yaml"
+    state: absent

@@ -1,0 +1,43 @@
+---
+- name: Apply patches to Talos nodes
+  hosts: localhost
+  vars:
+    project_root: "{{ playbook_dir | dirname }}"
+  tasks:
+    - name: Check if Talos config file exists
+      ansible.builtin.stat:
+        path: "{{ ansible_env.HOME }}/.talos/config"
+      register: talos_config_file
+      changed_when: false
+
+    - name: Fail Talos config file not found
+      ansible.builtin.fail:
+        msg: "Talos config file not found. Cannot apply patches to Talos nodes without target cluster."
+      when: not talos_config_file.stat.exists
+
+    - name: Create ecr-credential-provider patch file
+      ansible.builtin.template:
+        src: "{{ project_root }}/templates/ecr-credential-provider.yaml.j2"
+        dest: "{{ project_root }}/patches/ecr-credential-provider.yaml"
+        mode: "0644"
+
+    - name: Apply Talos configuration to nodes
+      ansible.builtin.command:
+        chdir: "{{ project_root }}"
+        cmd: |
+          talosctl patch machineconfig --nodes {{ ip }} --patch @patches/ecr-credential-provider.yaml
+      loop: "{{ groups['worker'] }}"
+      loop_control:
+        loop_var: host_name
+      vars:
+        ip: "{{ hostvars[host_name].ip }}"
+      register: result
+      changed_when: true
+      failed_when: >
+        result.rc != 0 and
+        'tls: certificate required' not in result.stderr
+
+    - name: Clean up ecr-credential-provider patch file
+      ansible.builtin.file:
+        path: "{{ project_root }}/patches/ecr-credential-provider.yaml"
+        state: absent

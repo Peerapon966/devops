@@ -599,7 +599,7 @@ fi
 # Set up Talos config
 log_step "Setting up Talos configuration..."
 log_info "Running Ansible playbook..."
-if ! ansible-playbook -i inventory.yaml playbook.yaml; then
+if ! ansible-playbook -i inventory.yaml playbook/setup_cluster.yaml; then
     log_error "Ansible playbook execution failed"
     exit 1
 fi

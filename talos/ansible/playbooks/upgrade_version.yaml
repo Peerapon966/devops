@@ -1,0 +1,29 @@
+---
+- name: Apply patches to Talos nodes
+  hosts: localhost
+  vars:
+    project_root: "{{ playbook_dir | dirname }}"
+  tasks:
+    - name: Check if Talos config file exists
+      ansible.builtin.stat:
+        path: "{{ ansible_env.HOME }}/.talos/config"
+      register: talos_config_file
+      changed_when: false
+
+    - name: Fail Talos config file not found
+      ansible.builtin.fail:
+        msg: "Talos config file not found. Cannot apply patches to Talos nodes without target cluster."
+      when: not talos_config_file.stat.exists
+
+    - name: Upgrade Talos image and Kubernetes version
+      ansible.builtin.command: |
+        talosctl upgrade --nodes {{ ip }} --image factory.talos.dev/nocloud-installer/{{ schematic_id }}:v{{ talos_version }}
+        talosctl upgrade-k8s --nodes {{ ip }} --to {{ k8s_version }}
+      loop: "{{ groups['worker'] }}"
+      loop_control:
+        loop_var: host_name
+      vars:
+        ip: "{{ hostvars[host_name].ip }}"
+      changed_when: true
+      failed_when: >
+        result.rc != 0
